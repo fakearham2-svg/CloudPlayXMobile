@@ -1,0 +1,65 @@
+name: Build CloudPlayX APK
+
+on:
+workflow_dispatch:
+
+permissions:
+contents: read
+
+jobs:
+build:
+runs-on: ubuntu-latest
+
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
+
+  - name: Extract project ZIP
+    run: |
+      mkdir -p extracted
+      unzip -q CloudPlayXMobile-Project.zip -d extracted
+      echo "Project files:"
+      find extracted -name settings.gradle.kts -o -name build.gradle.kts
+
+  - name: Locate Android project
+    run: |
+      PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)
+      if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
+        echo "Could not find the complete Android project."
+        exit 1
+      fi
+      echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+      echo "Found project at $PROJECT_DIR"
+
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
+
+  - name: Set up Android SDK
+    uses: android-actions/setup-android@v3
+    with:
+      packages: ''
+
+  - name: Accept Android SDK licenses
+    run: yes | sdkmanager --licenses || true
+
+  - name: Install Android SDK
+    run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+  - name: Set up Gradle
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: '8.7'
+
+  - name: Build APK
+    run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: CloudPlayXMobile-debug-apk
+      path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
+      if-no-files-found: error
+      retention-days: 14

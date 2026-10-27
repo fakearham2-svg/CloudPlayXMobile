@@ -9,27 +9,24 @@ contents: read
 jobs:
 build:
 runs-on: ubuntu-latest
-
 steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+- name: Checkout repository
+uses: actions/checkout@v4
 
   - name: Extract project ZIP
     run: |
       mkdir -p extracted
       unzip -q CloudPlayXMobile-Project.zip -d extracted
-      echo "Project files:"
-      find extracted -name settings.gradle.kts -o -name build.gradle.kts
+      find extracted -name settings.gradle.kts -print
 
   - name: Locate Android project
     run: |
       PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)
       if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-        echo "Could not find the complete Android project."
+        echo "Android project files not found in ZIP"
         exit 1
       fi
       echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-      echo "Found project at $PROJECT_DIR"
 
   - name: Set up Java
     uses: actions/setup-java@v4

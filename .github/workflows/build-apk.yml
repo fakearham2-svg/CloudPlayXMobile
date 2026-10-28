@@ -1,91 +1,85 @@
 name: Build CloudPlayX APK
 
 'on':
-workflow_dispatch:
+  workflow_dispatch:
 
 permissions:
-contents: read
+  contents: read
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+      - name: Extract project ZIP
+        shell: bash
+        run: |
+          mkdir -p extracted
+          unzip -q CloudPlayXMobile-Project.zip -d extracted
+          find extracted -name settings.gradle.kts -print
 
-  - name: Extract project ZIP
-    shell: bash
-    run: |
-      mkdir -p extracted
-      unzip -q CloudPlayXMobile-Project.zip -d extracted
-      find extracted -name settings.gradle.kts -print
+      - name: Locate Android project
+        shell: bash
+        run: |
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)"
+          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
+            echo "Android project files not found in ZIP"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-  - name: Locate Android project
-    shell: bash
-    run: |
-      PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)"
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-      if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
-        echo "Android project files not found in ZIP"
-        exit 1
-      fi
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: yes | sdkmanager --licenses || true
 
-  - name: Set up Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
-  - name: Set up Android SDK
-    uses: android-actions/setup-android@v3
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
 
-  - name: Accept Android SDK licenses
-    shell: bash
-    run: yes | sdkmanager --licenses || true
+      - name: Prepare debug keystore
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
 
-  - name: Install Android SDK
-    run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - name: Build APK
+        run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
-  - name: Set up Gradle
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.7'
+      - name: Print debug certificate SHA-1
+        shell: bash
+        run: |
+          keytool -list -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey | grep "SHA1:"
 
-  - name: Prepare debug keystore
-    shell: bash
-    run: |
-      mkdir -p "$HOME/.android"
-
-      if [ ! -f "$HOME/.android/debug.keystore" ]; then
-        keytool -genkeypair \
-          -keystore "$HOME/.android/debug.keystore" \
-          -storepass android \
-          -keypass android \
-          -alias androiddebugkey \
-          -dname "CN=Android Debug,O=Android,C=US" \
-          -keyalg RSA \
-          -keysize 2048 \
-          -validity 10000
-      fi
-
-  - name: Build APK
-    run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
-
-  - name: Print debug certificate SHA-1
-    shell: bash
-    run: |
-      keytool -list -v \
-        -keystore "$HOME/.android/debug.keystore" \
-        -storepass android \
-        -alias androiddebugkey | grep "SHA1:"
-
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: CloudPlayXMobile-debug-apk
-      path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
-      if-no-files-found: error
-      retention-days: 14
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CloudPlayXMobile-debug-apk
+          path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

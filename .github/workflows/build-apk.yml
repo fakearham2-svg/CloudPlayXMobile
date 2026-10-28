@@ -18,38 +18,36 @@ jobs:
         shell: bash
         run: |
           mkdir -p extracted
+
           if [ -f "CloudPlayXMobile-Project.zip" ]; then
             unzip -q CloudPlayXMobile-Project.zip -d extracted
           elif [ -f "CloudPlayXMobile-FULL-UPDATED.zip" ]; then
             unzip -q CloudPlayXMobile-FULL-UPDATED.zip -d extracted
           else
-            echo "ERROR: Project ZIP not found in repository root."
+            echo "ERROR: Project ZIP not found!"
             exit 1
           fi
 
-          find extracted -name settings.gradle.kts -print
-
-      - name: Locate Android project
+      - name: Find Android project
         shell: bash
         run: |
-          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f \
-            \( -name settings.gradle.kts -o -name settings.gradle \) \
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" \
+            -type f \( -name settings.gradle -o -name settings.gradle.kts \) \
             -print -quit | xargs -r dirname)"
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: settings.gradle(.kts) not found in ZIP."
+            echo "ERROR: Gradle project not found in ZIP!"
             exit 1
           fi
 
-          if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ] && \
-             [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
-            echo "ERROR: App module build file not found."
-            find "$GITHUB_WORKSPACE/extracted" -maxdepth 5 -type f
+          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
+             [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+            echo "ERROR: app module not found!"
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project: $PROJECT_DIR"
+          echo "Found project: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -60,12 +58,19 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK licenses
+      - name: Prepare SDK licenses
         shell: bash
         run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+
+          printf '%s\n' \
+            '8933bad161af4178b1185d1a37fbf41ea5269c55' \
+            'd56f5187479451eabf01fb78af6dfcb131a6481e' \
+            > "$ANDROID_HOME/licenses/android-sdk-license"
+
           yes | sdkmanager --licenses || true
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         shell: bash
         run: |
           sdkmanager --install \
@@ -73,45 +78,60 @@ jobs:
             "platforms;android-34" \
             "build-tools;34.0.0"
 
-      - name: Build debug APK
+      - name: Build APK
         shell: bash
         run: |
           cd "$PROJECT_DIR"
 
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew --no-daemon assembleDebug
-          else
-            echo "ERROR: Gradle wrapper (gradlew) missing."
+          if [ ! -f "gradlew" ]; then
+            echo "ERROR: gradlew missing from project ZIP!"
             exit 1
           fi
 
-      - name: Print APK signing SHA-1
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Locate APK
         shell: bash
         run: |
           APK="$(find "$PROJECT_DIR" -type f \
-            -path '*/build/outputs/apk/debug/*.apk' -print -quit)"
+            -path '*/build/outputs/apk/debug/*.apk' \
+            -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK not found."
+            echo "ERROR: APK was not generated!"
             exit 1
           fi
 
-          echo "APK created: $APK"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          echo "APK generated successfully."
 
-          if [ -f "$HOME/.android/debug.keystore" ]; then
-            keytool -list -v \
+      - name: Generate debug keystore and SHA-1
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair \
               -keystore "$HOME/.android/debug.keystore" \
               -storepass android \
-              -alias androiddebugkey | grep -E 'SHA1:|SHA-1:'
-          else
-            echo "Debug keystore not found; SHA-1 not printed."
+              -keypass android \
+              -alias androiddebugkey \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
           fi
+
+          keytool -list -v \
+            -keystore "$HOME/.android/debug.keystore" \
+            -storepass android \
+            -alias androiddebugkey | grep -E 'SHA1:|SHA-1:'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: CloudPlayXMobile-debug-apk
-          path: extracted/**/build/outputs/apk/debug/*.apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
           retention-days: 14

@@ -9,9 +9,10 @@ contents: read
 jobs:
 build:
 runs-on: ubuntu-latest
+
 steps:
-- name: Checkout repository
-uses: actions/checkout@v4
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
   - name: Extract project ZIP
     shell: bash
@@ -19,14 +20,17 @@ uses: actions/checkout@v4
       mkdir -p extracted
       unzip -q CloudPlayXMobile-Project.zip -d extracted
       find extracted -name settings.gradle.kts -print
+
   - name: Locate Android project
     shell: bash
     run: |
       PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)"
+
       if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
         echo "Android project files not found in ZIP"
         exit 1
       fi
+
       echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
   - name: Set up Java
@@ -50,24 +54,33 @@ uses: actions/checkout@v4
     with:
       gradle-version: '8.7'
 
+  - name: Prepare debug keystore
+    shell: bash
+    run: |
+      mkdir -p "$HOME/.android"
+
+      if [ ! -f "$HOME/.android/debug.keystore" ]; then
+        keytool -genkeypair \
+          -keystore "$HOME/.android/debug.keystore" \
+          -storepass android \
+          -keypass android \
+          -alias androiddebugkey \
+          -dname "CN=Android Debug,O=Android,C=US" \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000
+      fi
+
   - name: Build APK
     run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
   - name: Print debug certificate SHA-1
     shell: bash
     run: |
-      mkdir -p "$HOME/.android"
-      if [ ! -f "$HOME/.android/debug.keystore" ]; then
-        keytool -genkeypair -v \
-          -keystore "$HOME/.android/debug.keystore" \
-          -storepass android -keypass android \
-          -alias androiddebugkey \
-          -dname "CN=Android Debug,O=Android,C=US" \
-          -keyalg RSA -keysize 2048 -validity 10000
-      fi
       keytool -list -v \
         -keystore "$HOME/.android/debug.keystore" \
-        -storepass android -alias androiddebugkey | grep "SHA1:"
+        -storepass android \
+        -alias androiddebugkey | grep "SHA1:"
 
   - name: Upload APK
     uses: actions/upload-artifact@v4

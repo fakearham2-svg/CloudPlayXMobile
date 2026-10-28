@@ -1,6 +1,6 @@
 name: Build CloudPlayX APK
 
-on:
+'on':
 workflow_dispatch:
 
 permissions:
@@ -14,14 +14,16 @@ steps:
 uses: actions/checkout@v4
 
   - name: Extract project ZIP
+    shell: bash
     run: |
       mkdir -p extracted
       unzip -q CloudPlayXMobile-Project.zip -d extracted
       find extracted -name settings.gradle.kts -print
 
   - name: Locate Android project
+    shell: bash
     run: |
-      PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)
+      PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)"
       if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
         echo "Android project files not found in ZIP"
         exit 1
@@ -36,10 +38,9 @@ uses: actions/checkout@v4
 
   - name: Set up Android SDK
     uses: android-actions/setup-android@v3
-    with:
-      packages: ''
 
   - name: Accept Android SDK licenses
+    shell: bash
     run: yes | sdkmanager --licenses || true
 
   - name: Install Android SDK
@@ -54,13 +55,20 @@ uses: actions/checkout@v4
     run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
   - name: Print debug certificate SHA-1
+    shell: bash
     run: |
-      echo "Debug signing certificate SHA-1:"
+      mkdir -p "$HOME/.android"
+      if [ ! -f "$HOME/.android/debug.keystore" ]; then
+        keytool -genkeypair -v \
+          -keystore "$HOME/.android/debug.keystore" \
+          -storepass android -keypass android \
+          -alias androiddebugkey \
+          -dname "CN=Android Debug,O=Android,C=US" \
+          -keyalg RSA -keysize 2048 -validity 10000
+      fi
       keytool -list -v \
         -keystore "$HOME/.android/debug.keystore" \
-        -storepass android \
-        -keypass android \
-        -alias androiddebugkey | grep -E "SHA1:|SHA-1:"
+        -storepass android -alias androiddebugkey | grep "SHA1:"
 
   - name: Upload APK
     uses: actions/upload-artifact@v4

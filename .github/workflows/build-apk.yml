@@ -1,6 +1,6 @@
 name: Build CloudPlayX APK
 
-"on":
+on:
   workflow_dispatch:
 
 permissions:
@@ -20,34 +20,44 @@ jobs:
           mkdir -p extracted
 
           if [ -f "CloudPlayXMobile-Project.zip" ]; then
-            unzip -q CloudPlayXMobile-Project.zip -d extracted
+            unzip -q "CloudPlayXMobile-Project.zip" -d extracted
           elif [ -f "CloudPlayXMobile-FULL-UPDATED.zip" ]; then
-            unzip -q CloudPlayXMobile-FULL-UPDATED.zip -d extracted
+            unzip -q "CloudPlayXMobile-FULL-UPDATED.zip" -d extracted
           else
-            echo "ERROR: Project ZIP not found in repository root"
+            echo "ERROR: Project ZIP not found."
+            find . -maxdepth 3 -type f
             exit 1
           fi
 
       - name: Locate Android project
         shell: bash
         run: |
-          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" \
-            -type f \( -name settings.gradle -o -name settings.gradle.kts \) \
-            -print -quit | xargs -r dirname)"
+          PROJECT_DIR=""
+
+          while IFS= read -r file; do
+            dir="$(dirname "$file")"
+
+            if [ -f "$dir/app/build.gradle" ] || \
+               [ -f "$dir/app/build.gradle.kts" ]; then
+              PROJECT_DIR="$dir"
+              break
+            fi
+          done < <(
+            find "$GITHUB_WORKSPACE/extracted" \
+              \( -name settings.gradle -o -name settings.gradle.kts \) \
+              -type f
+          )
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Gradle settings file not found"
-            exit 1
-          fi
-
-          if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
-             [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "ERROR: App module Gradle file not found"
+            echo "ERROR: Android Gradle project not found in ZIP."
+            echo "Files inside ZIP:"
+            find extracted -maxdepth 5 -type f | head -200
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT_DIR"
+          echo "Project found: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -56,47 +66,43 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
+
+      - name: Prepare Gradle Wrapper
         shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
+          cd "$PROJECT_DIR"
 
-          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
-            -type f -name sdkmanager -print -quit)"
+          if [ -f gradlew ]; then
+            chmod +x gradlew
+            echo "Existing Gradle Wrapper found."
+          else
+            echo "gradlew missing; checking installed Gradle."
 
-          if [ -z "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found"
-            exit 1
+            if command -v gradle >/dev/null 2>&1; then
+              gradle wrapper
+            else
+              echo "ERROR: gradlew is missing and system Gradle is unavailable."
+              echo "The project ZIP must include gradlew and gradle/wrapper files,"
+              echo "or provide a valid Gradle installation/version."
+              exit 1
+            fi
           fi
 
-          echo "SDK manager: $SDKMANAGER"
-          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
-
-      - name: Accept Android SDK licenses
-        shell: bash
-        run: |
-          mkdir -p "$ANDROID_HOME/licenses"
-
-          yes | "$SDKMANAGER" --licenses || true
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          "$SDKMANAGER" --install \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0"
+          if [ ! -f gradle/wrapper/gradle-wrapper.properties ]; then
+            echo "ERROR: Gradle wrapper properties are missing."
+            exit 1
+          fi
 
       - name: Build debug APK
         shell: bash
         run: |
           cd "$PROJECT_DIR"
-
-          if [ ! -f gradlew ]; then
-            echo "ERROR: gradlew is missing from the ZIP"
-            exit 1
-          fi
-
-          chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
 
       - name: Find APK
@@ -107,7 +113,7 @@ jobs:
             -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated"
+            echo "ERROR: APK was not generated."
             exit 1
           fi
 
@@ -126,7 +132,6 @@ jobs:
               -alias androiddebugkey | grep -E 'SHA1:|SHA-1:'
           else
             echo "Debug keystore not found."
-            echo "Use the SHA-1 from the actual signing certificate."
           fi
 
       - name: Upload APK

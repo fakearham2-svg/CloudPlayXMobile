@@ -1,6 +1,6 @@
 name: Build CloudPlayX APK
 
-'on':
+on:
 workflow_dispatch:
 
 permissions:

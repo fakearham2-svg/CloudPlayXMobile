@@ -25,7 +25,7 @@ jobs:
           elif [ -f CloudPlayXMobile-FULL-UPDATED.zip ]; then
             unzip -q CloudPlayXMobile-FULL-UPDATED.zip -d extracted
           else
-            echo "ERROR: Project ZIP not found in repository root."
+            echo "ERROR: Project ZIP not found."
             exit 1
           fi
 
@@ -49,13 +49,13 @@ jobs:
           )
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found."
+            echo "ERROR: Android project not found in ZIP."
             find extracted -maxdepth 5 -type f | head -200
             exit 1
           fi
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT_DIR"
+          echo "Project: $PROJECT_DIR"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -63,38 +63,47 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept licenses and install SDK packages
+      - name: Configure preinstalled Android SDK
         shell: bash
         run: |
           set -e
 
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          echo "ANDROID_HOME=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=/usr/local/lib/android/sdk" >> "$GITHUB_ENV"
 
-          if [ ! -f "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
-              -type f -name sdkmanager -print -quit)"
-          fi
+          SDK="/usr/local/lib/android/sdk"
+          SDKMANAGER="$(find "$SDK/cmdline-tools" \
+            -type f -name sdkmanager -print -quit)"
 
-          if [ -z "$SDKMANAGER" ] || [ ! -f "$SDKMANAGER" ]; then
-            echo "ERROR: sdkmanager not found."
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager is missing on this runner."
             exit 1
           fi
 
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "Found SDK manager: $SDKMANAGER"
+
+      - name: Accept licenses
+        shell: bash
+        run: |
+          set -e
+          mkdir -p "$ANDROID_HOME/licenses"
           yes | "$SDKMANAGER" --licenses || true
 
+      - name: Install required SDK packages
+        shell: bash
+        run: |
+          set -e
           "$SDKMANAGER" --install "platform-tools"
           "$SDKMANAGER" --install "platforms;android-34"
           "$SDKMANAGER" --install "build-tools;34.0.0"
 
-      - name: Set up Gradle
+      - name: Install Gradle
         shell: bash
         run: |
           set -e
-
           GRADLE_VERSION="8.9"
+
           wget -q \
             "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
             -O /tmp/gradle.zip
@@ -112,11 +121,10 @@ jobs:
             chmod +x gradlew
             ./gradlew --no-daemon assembleDebug
           else
-            echo "gradlew missing; using downloaded Gradle."
             gradle --no-daemon assembleDebug
           fi
 
-      - name: Find APK
+      - name: Locate APK
         shell: bash
         run: |
           set -e
@@ -126,12 +134,12 @@ jobs:
             -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: Build finished but no debug APK was found."
+            echo "ERROR: APK not found after build."
             exit 1
           fi
 
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-          echo "APK created: $APK"
+          echo "APK ready: $APK"
 
       - name: Print debug certificate SHA-1
         shell: bash

@@ -24,11 +24,11 @@ jobs:
           elif [ -f "CloudPlayXMobile-FULL-UPDATED.zip" ]; then
             unzip -q CloudPlayXMobile-FULL-UPDATED.zip -d extracted
           else
-            echo "ERROR: Project ZIP not found!"
+            echo "ERROR: Project ZIP not found in repository root"
             exit 1
           fi
 
-      - name: Find Android project
+      - name: Locate Android project
         shell: bash
         run: |
           PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" \
@@ -36,13 +36,13 @@ jobs:
             -print -quit | xargs -r dirname)"
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Gradle project not found in ZIP!"
+            echo "ERROR: Gradle settings file not found"
             exit 1
           fi
 
           if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
              [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "ERROR: app module not found!"
+            echo "ERROR: App module Gradle file not found"
             exit 1
           fi
 
@@ -56,42 +56,50 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
 
-      - name: Prepare SDK licenses
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+            -type f -name sdkmanager -print -quit)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            exit 1
+          fi
+
+          echo "SDK manager: $SDKMANAGER"
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+
+      - name: Accept Android SDK licenses
         shell: bash
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
 
-          printf '%s\n' \
-            '8933bad161af4178b1185d1a37fbf41ea5269c55' \
-            'd56f5187479451eabf01fb78af6dfcb131a6481e' \
-            > "$ANDROID_HOME/licenses/android-sdk-license"
+          yes | "$SDKMANAGER" --licenses || true
 
-          yes | sdkmanager --licenses || true
-
-      - name: Install Android SDK
+      - name: Install Android SDK packages
         shell: bash
         run: |
-          sdkmanager --install \
+          "$SDKMANAGER" --install \
             "platform-tools" \
             "platforms;android-34" \
             "build-tools;34.0.0"
 
-      - name: Build APK
+      - name: Build debug APK
         shell: bash
         run: |
           cd "$PROJECT_DIR"
 
-          if [ ! -f "gradlew" ]; then
-            echo "ERROR: gradlew missing from project ZIP!"
+          if [ ! -f gradlew ]; then
+            echo "ERROR: gradlew is missing from the ZIP"
             exit 1
           fi
 
           chmod +x gradlew
           ./gradlew --no-daemon assembleDebug
 
-      - name: Locate APK
+      - name: Find APK
         shell: bash
         run: |
           APK="$(find "$PROJECT_DIR" -type f \
@@ -99,34 +107,27 @@ jobs:
             -print -quit)"
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated!"
+            echo "ERROR: APK was not generated"
             exit 1
           fi
 
           echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-          echo "APK generated successfully."
+          echo "APK found: $APK"
 
-      - name: Generate debug keystore and SHA-1
+      - name: Print debug certificate SHA-1
         shell: bash
         run: |
-          mkdir -p "$HOME/.android"
+          KEYSTORE="$HOME/.android/debug.keystore"
 
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair \
-              -keystore "$HOME/.android/debug.keystore" \
+          if [ -f "$KEYSTORE" ]; then
+            keytool -list -v \
+              -keystore "$KEYSTORE" \
               -storepass android \
-              -keypass android \
-              -alias androiddebugkey \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000
+              -alias androiddebugkey | grep -E 'SHA1:|SHA-1:'
+          else
+            echo "Debug keystore not found."
+            echo "Use the SHA-1 from the actual signing certificate."
           fi
-
-          keytool -list -v \
-            -keystore "$HOME/.android/debug.keystore" \
-            -storepass android \
-            -alias androiddebugkey | grep -E 'SHA1:|SHA-1:'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

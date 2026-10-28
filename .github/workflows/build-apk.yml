@@ -9,10 +9,9 @@ contents: read
 jobs:
 build:
 runs-on: ubuntu-latest
-
 steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+- name: Checkout repository
+uses: actions/checkout@v4
 
   - name: Extract project ZIP
     shell: bash
@@ -25,12 +24,10 @@ steps:
     shell: bash
     run: |
       PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -path '*/app/build.gradle.kts' -print -quit | xargs -r dirname | xargs -r dirname)"
-
       if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/settings.gradle.kts" ]; then
         echo "Android project files not found in ZIP"
         exit 1
       fi
-
       echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
   - name: Set up Java
@@ -45,8 +42,7 @@ steps:
   - name: Accept Android SDK licenses
     shell: bash
     run: |
-      set +o pipefail
-      yes | sdkmanager --licenses
+      yes | sdkmanager --licenses || true
 
   - name: Install Android SDK
     shell: bash
@@ -65,7 +61,6 @@ steps:
     shell: bash
     run: |
       mkdir -p "$HOME/.android"
-
       if [ ! -f "$HOME/.android/debug.keystore" ]; then
         keytool -genkeypair \
           -keystore "$HOME/.android/debug.keystore" \
@@ -80,8 +75,7 @@ steps:
 
   - name: Build APK
     shell: bash
-    run: |
-      gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
+    run: gradle --no-daemon -p "$PROJECT_DIR" assembleDebug
 
   - name: Print debug certificate SHA-1
     shell: bash

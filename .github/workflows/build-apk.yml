@@ -1,6 +1,6 @@
 name: Build CloudPlayX APK
 
-on:
+'on':
 workflow_dispatch:
 
 permissions:
@@ -19,7 +19,6 @@ uses: actions/checkout@v4
       mkdir -p extracted
       unzip -q CloudPlayXMobile-Project.zip -d extracted
       find extracted -name settings.gradle.kts -print
-
   - name: Locate Android project
     shell: bash
     run: |

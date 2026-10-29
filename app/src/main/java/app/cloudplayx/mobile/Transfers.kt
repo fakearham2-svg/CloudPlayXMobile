@@ -58,7 +58,7 @@ object Transfers {
             val resolver = app.contentResolver
             val rootDoc = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
             val total = sizeOf(source)
-            val copied = longArrayOf(0L)
+            var copiedBytes = 0L
             val meter = SpeedMeter()
             fun copy(src: File, parent: Uri) {
                 job.token.check()
@@ -79,9 +79,9 @@ object Transfers {
                                 val n = i.read(buf)
                                 if (n < 0) break
                                 o.write(buf, 0, n)
-                                copied[0] += n
-                                val sp = meter.update(copied[0])
-                                job.update(TransferProgress(copied[0], total, sp, SpeedMeter.eta(total - copied[0], sp)))
+                                copiedBytes += n
+                                val sp = meter.update(copiedBytes)
+                                job.update(TransferProgress(copiedBytes, total, sp, SpeedMeter.eta(total - copiedBytes, sp)))
                             }
                         }
                     }

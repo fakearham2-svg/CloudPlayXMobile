@@ -1,0 +1,12 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+build/
+app/build/
+.DS_Store
+# never commit signing keys or stale copies
+*.jks
+*.keystore
+*.zip
+*.bak

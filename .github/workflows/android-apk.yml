@@ -89,13 +89,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Unit tests
-        run: ./gradlew --no-daemon testDebugUnitTest
+        run: .github/ci-run.sh ./gradlew --no-daemon testDebugUnitTest
 
       - name: Lint
-        run: ./gradlew --no-daemon lintDebug
+        run: .github/ci-run.sh ./gradlew --no-daemon lintDebug
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug
+        run: .github/ci-run.sh ./gradlew --no-daemon assembleDebug
 
       - name: Verify the APK and print its signing SHA-1
         run: |

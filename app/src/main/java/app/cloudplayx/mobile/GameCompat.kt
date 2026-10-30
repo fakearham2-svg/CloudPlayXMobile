@@ -19,6 +19,8 @@ data class Verdict(
     val detail: String,
     val canExtract: Boolean = false,
     val canInstall: Boolean = false,
+    /** CloudPlayX can read this archive's index remotely and download only the files you choose. */
+    val canBrowseInside: Boolean = false,
 )
 
 enum class StorageLevel { OK, LOW, INSUFFICIENT }
@@ -50,8 +52,8 @@ object GameCompat {
             )
             ext in setOf("xapk", "apks", "apkm") -> Verdict(
                 Kind.ANDROID_BUNDLE, Support.PARTIAL, "Android app bundle (${ext.uppercase()})",
-                "This is a zip of split APKs plus data. CloudPlayX can download and extract it, but installing split APKs needs a dedicated installer app (for example SAI) or ADB. Extract it and pick the files you need.",
-                canExtract = true,
+                "A split-APK bundle: base.apk plus separate pieces for CPU type, screen density and language, sometimes with OBB data. You can download only the pieces your phone needs (usually base + your CPU + your language) to save space. Android's normal installer cannot install split APKs from a file; use a split-APK installer app (for example SAI) or ADB.",
+                canExtract = true, canBrowseInside = true,
             )
             ext == "obb" -> Verdict(
                 Kind.OBB, Support.PARTIAL, "Game data file (OBB)",
@@ -59,8 +61,8 @@ object GameCompat {
             )
             ext == "zip" -> Verdict(
                 Kind.ZIP, Support.SUPPORTED, "ZIP archive",
-                "Download, then extract safely into the CloudPlayX library. Password-protected ZIPs are not supported. What you can do with the extracted files depends on the game or app that will use them.",
-                canExtract = true,
+                "Download it, or choose only some files inside it to download (saves space). Extraction is safe and checked. Password-protected ZIPs are not supported. What the extracted files can be used for depends on the game or app.",
+                canExtract = true, canBrowseInside = true,
             )
             ext in OTHER_ARCHIVE_EXT -> Verdict(
                 Kind.OTHER_ARCHIVE, Support.PARTIAL, "Archive (${ext.uppercase()})",

@@ -89,6 +89,31 @@ class LibraryStore(val root: File) {
         return freed
     }
 
+    /**
+     * Safe automatic cleanup. Touches ONLY temporary/internal data, never downloaded files or folders:
+     *  - unfinished downloads (.partial) not touched for [partialMaxAgeMs] (they could no longer be resumed reliably),
+     *  - leftover extraction temp folders (".extract-*") older than one hour (from a crash or killed app),
+     *  - index entries (.meta) whose downloaded file no longer exists.
+     * Returns the number of bytes freed.
+     */
+    fun cleanTemp(partialMaxAgeMs: Long, now: Long = System.currentTimeMillis()): Long {
+        var freed = 0L
+        for (f in partialDir.listFiles() ?: emptyArray()) {
+            if (f.isFile && now - f.lastModified() > partialMaxAgeMs) { freed += f.length(); f.delete() }
+        }
+        for (f in root.listFiles() ?: emptyArray()) {
+            if (f.isDirectory && f.name.startsWith(".extract-") && now - f.lastModified() > 3_600_000L) {
+                freed += dirSize(f); f.deleteRecursively()
+            }
+        }
+        for (f in metaDir.listFiles() ?: emptyArray()) {
+            if (f.name.endsWith(".tmp")) { f.delete(); continue }
+            val m = readMeta(f)
+            if (m == null || !File(root, m.name).exists()) f.delete()
+        }
+        return freed
+    }
+
     fun partialBytes(): Long = (partialDir.listFiles() ?: emptyArray()).filter { it.name.endsWith(".part") }.sumOf { it.length() }
 
     fun usedBytes(): Long = dirSize(root)

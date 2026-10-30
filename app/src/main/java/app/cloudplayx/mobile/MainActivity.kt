@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private lateinit var passEdit: EditText
     private lateinit var budgetEdit: EditText
     private lateinit var ageEdit: EditText
+    private lateinit var libLimitEdit: EditText
     private lateinit var connectBtn: Button
     private lateinit var testBtn: Button
     private lateinit var browseBtn: Button
@@ -126,8 +127,11 @@ class MainActivity : Activity() {
         cacheCard.addView(u.label("Used when other apps read cloud files directly through the file picker. Downloaded library files are separate and are never removed automatically.", 13f, p.muted))
         budgetEdit = u.field("Cache budget in GB", (settings.cacheBudgetMb / 1024.0).toString(), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
         ageEdit = u.field("Remove unused blocks after (days)", settings.maxAgeDays.toString(), InputType.TYPE_CLASS_NUMBER)
+        libLimitEdit = u.field("Downloads library limit in GB (0 = no limit)", (settings.libraryLimitMb / 1024.0).toString(), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
         cacheCard.addView(budgetEdit)
         cacheCard.addView(ageEdit)
+        cacheCard.addView(libLimitEdit)
+        cacheCard.addView(u.label("The library limit only stops new downloads that would exceed it. CloudPlayX never deletes your downloaded files by itself; only leftover temporary data (unfinished downloads older than 7 days, crashed extractions) is cleaned automatically.", 12f, p.muted).apply { setPadding(0, u.dp(4), 0, u.dp(2)) })
         cacheCard.addView(u.button("Save cache settings") { saveCacheSettings() })
         cacheInfo = u.label("", 13f, p.muted).apply { setPadding(0, u.dp(10), 0, u.dp(4)) }
         cacheCard.addView(cacheInfo)
@@ -159,6 +163,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // Housekeeping that is always safe: removes only stale temporary files (see LibraryStore.cleanTemp).
+        runBg { LibraryHolder.get(applicationContext).cleanTemp(7 * 86_400_000L) }
         refresh()
     }
 
@@ -345,10 +351,12 @@ class MainActivity : Activity() {
     private fun saveCacheSettings() {
         val gb = budgetEdit.text.toString().toDoubleOrNull()
         val days = ageEdit.text.toString().toIntOrNull()
-        if (gb == null || gb < 0.1 || gb > 2048 || days == null || days < 1 || days > 3650) {
-            u.toast("Enter a cache budget from 0.1 to 2048 GB and unused age from 1 to 3650 days.")
+        val limitGb = libLimitEdit.text.toString().ifBlank { "0" }.toDoubleOrNull()
+        if (gb == null || gb < 0.1 || gb > 2048 || days == null || days < 1 || days > 3650 || limitGb == null || limitGb < 0 || limitGb > 100000) {
+            u.toast("Enter a cache budget from 0.1 to 2048 GB, unused age from 1 to 3650 days, and a library limit of 0 or more GB.")
             return
         }
+        settings.libraryLimitMb = (limitGb * 1024).toLong()
         settings.cacheBudgetMb = (gb * 1024).toLong()
         settings.maxAgeDays = days
         runBg {

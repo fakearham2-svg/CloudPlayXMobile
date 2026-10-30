@@ -90,6 +90,11 @@ class GameCompatTest {
         for (n in listOf("x.gba", "x.iso", "x.7z", "x.pak", "x.nsp", "unknown.zzz")) assertEquals(n, Support.PARTIAL, a(n).support)
         assertFalse(a("x.7z").canExtract)
     }
+    @Test fun archives_that_support_selective_download_are_distinguished_from_the_rest() {
+        assertTrue(a("data.zip").canBrowseInside); assertTrue(a("game.xapk").canBrowseInside); assertTrue(a("game.apks").canBrowseInside)
+        assertFalse(a("game.apk").canBrowseInside); assertFalse(a("x.7z").canBrowseInside); assertFalse(a("main.obb").canBrowseInside)
+        assertTrue(a("game.apks").detail.contains("split-APK installer")); assertFalse(a("game.apks").canInstall)
+    }
     @Test fun storage_verdicts() {
         val gb = 1L shl 30
         assertEquals(StorageLevel.OK, GameCompat.storage(gb, 10 * gb).level)
@@ -139,6 +144,23 @@ class LibraryStoreTest {
         val part = s.partFor("gdrive", "id"); part.parentFile.mkdirs(); part.writeBytes(ByteArray(7))
         assertEquals(7L, s.partialBytes()); assertEquals(7L, s.clearPartials())
         assertTrue(keep.exists()); assertFalse(part.exists())
+    }
+    @Test fun cleanTemp_removes_only_stale_temporary_data_never_user_files() {
+        val s = store(); val now = 100L * 86_400_000L
+        val keep = File(s.root, "game.apk").apply { writeText("keep"); setLastModified(1) }
+        val keepDir = File(s.root, "Extracted Game").apply { mkdirs() }; File(keepDir, "a.bin").apply { writeText("x"); setLastModified(1) }; keepDir.setLastModified(1)
+        val oldPart = s.partFor("g", "old"); oldPart.parentFile.mkdirs(); oldPart.writeBytes(ByteArray(10)); oldPart.setLastModified(now - 10 * 86_400_000L)
+        val newPart = s.partFor("g", "new"); newPart.writeBytes(ByteArray(5)); newPart.setLastModified(now - 86_400_000L)
+        val staleTmp = File(s.root, ".extract-x-1").apply { mkdirs() }; File(staleTmp, "f").writeBytes(ByteArray(7)); staleTmp.setLastModified(now - 7_200_000L)
+        val freshTmp = File(s.root, ".extract-y-2").apply { mkdirs() }; freshTmp.setLastModified(now - 60_000L)
+        val e = entry(); val p = s.plan("gdrive", e); p.target.writeBytes(ByteArray(10)); s.record(p.target, "gdrive", e)
+        p.target.delete() // orphaned index entry
+        val freed = s.cleanTemp(7 * 86_400_000L, now)
+        assertEquals(17L, freed)
+        assertTrue(keep.exists()); assertTrue(File(keepDir, "a.bin").exists())
+        assertFalse(oldPart.exists()); assertTrue(newPart.exists())
+        assertFalse(staleTmp.exists()); assertTrue(freshTmp.exists())
+        assertNull(s.metaOf(p.target))
     }
     @Test fun list_hides_internal_folders() {
         val s = store(); File(s.root, "a.zip").writeText("x"); s.partFor("g", "i").parentFile.mkdirs()

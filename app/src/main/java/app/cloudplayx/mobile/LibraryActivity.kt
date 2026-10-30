@@ -36,6 +36,7 @@ class LibraryActivity : Activity() {
     private lateinit var fileBox: LinearLayout
     private lateinit var partialBtn: android.widget.Button
     private var pendingExport: File? = null
+    private var pendingMove = false
     private val main = Handler(Looper.getMainLooper())
     private var refreshPosted = false
     private var lastActive = -1
@@ -210,7 +211,8 @@ class LibraryActivity : Activity() {
         if (v?.canInstall == true) add("Install app (Android installer)") { installApk(f) }
         if (v?.canExtract == true) add("Extract here") { extract(f) }
         if (!item.isDir) add("Open with…") { openWith(f) }
-        add("Copy to a folder…") { pickFolderFor(f) }
+        add("Copy to a folder…") { pickFolderFor(f, move = false) }
+        add("Move to a folder (frees phone storage)…") { pickFolderFor(f, move = true) }
         add("Delete") { confirmDelete(f) }
         AlertDialog.Builder(this)
             .setTitle(f.name)
@@ -219,10 +221,31 @@ class LibraryActivity : Activity() {
             .show()
     }
 
+    /** Shows the storage needed before extracting, and offers to delete the downloaded archive afterwards. */
     private fun extract(f: File) {
         val free = store.root.usableSpace
-        if (f.length() > free) { u.toast("Not enough free space to extract (${GameCompat.human(free)} free).", long = true); return }
-        Transfers.extract(this, f)
+        runBg {
+            val need = ZipExtractor.declaredSize(f)
+            ui {
+                if (need < 0) { u.toast("This file cannot be read as a ZIP archive.", long = true); return@ui }
+                val verdict = GameCompat.storage(need, free)
+                val msg = "Extracting needs ${GameCompat.human(need)}. ${GameCompat.human(free)} is free on this phone.\n" +
+                    "While extracting, the archive (${GameCompat.human(f.length())}) and the extracted files both take space. " +
+                    "Deleting the archive afterwards frees ${GameCompat.human(f.length())}; your cloud copy is not affected and you can download it again.\n\n" +
+                    (if (verdict.level == StorageLevel.OK) "" else verdict.message)
+                val b = AlertDialog.Builder(this).setTitle("Extract ${f.name}?").setMessage(msg)
+                    .setNegativeButton("Cancel", null)
+                if (verdict.level != StorageLevel.INSUFFICIENT) {
+                    b.setPositiveButton("Extract, keep archive") { _, _ -> startExtract(f, false) }
+                    b.setNeutralButton("Extract, then delete archive") { _, _ -> startExtract(f, true) }
+                }
+                b.show()
+            }
+        }
+    }
+
+    private fun startExtract(f: File, deleteAfter: Boolean) {
+        Transfers.extract(this, f, deleteAfter)
         u.toast("Extraction started.")
         scheduleRefresh()
     }
@@ -259,8 +282,9 @@ class LibraryActivity : Activity() {
         }
     }
 
-    private fun pickFolderFor(f: File) {
+    private fun pickFolderFor(f: File, move: Boolean) {
         pendingExport = f
+        pendingMove = move
         try {
             @Suppress("DEPRECATION")
             startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
@@ -282,8 +306,9 @@ class LibraryActivity : Activity() {
         try {
             contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
         } catch (_: Exception) { }
-        Transfers.export(this, file, tree)
-        u.toast("Copy started.")
+        Transfers.export(this, file, tree, deleteSourceAfter = pendingMove)
+        u.toast(if (pendingMove) "Move started. The local copy is removed only after everything was copied." else "Copy started.")
+        pendingMove = false
         scheduleRefresh()
     }
 

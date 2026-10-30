@@ -69,6 +69,11 @@ class ZipExtractorTest {
         assertTrue(base.listFiles()!!.isEmpty())
     }
 
+    @Test fun declared_size_for_the_storage_preview() {
+        assertEquals(305L, ZipExtractor.declaredSize(zip("a.txt" to ByteArray(5), "d/b" to ByteArray(300))))
+        assertEquals(-1L, ZipExtractor.declaredSize(File(dir(), "nope.zip")))
+    }
+
     @Test fun garbage_is_a_clean_error() {
         val f = File(dir(), "x.zip").apply { writeText("not a zip") }
         try { ZipExtractor.extract(f, File(dir(), "G"), spaceMargin = noMargin); fail() } catch (e: ExtractException) { assertTrue(e.message!!.contains("not a readable ZIP")) }

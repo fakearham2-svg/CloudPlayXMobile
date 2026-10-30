@@ -53,7 +53,13 @@ class Settings(ctx: Context) {
         get() = p.getInt("configVersion", 0)
         set(v) { p.edit().putInt("configVersion", v).apply() }
 
+    /** Maximum total size of the downloaded-files library in MiB; 0 = no limit. Never triggers automatic deletion. */
+    var libraryLimitMb: Long
+        get() = p.getLong("libraryLimitMb", 0L)
+        set(v) { p.edit().putLong("libraryLimitMb", v).apply() }
+
     val budgetBytes: Long get() = cacheBudgetMb * 1024L * 1024L
+    val libraryLimitBytes: Long get() = libraryLimitMb * 1024L * 1024L
 
     /** Forget the selected cloud and its credentials on this phone. Downloaded library files are kept. */
     fun disconnect() {

@@ -119,6 +119,16 @@ object ZipExtractor {
         return ExtractResult(files, done, tmp)
     }
 
+    /** Total uncompressed size of all files in a local ZIP (for the "needs X of storage" preview), or -1 if unreadable. */
+    fun declaredSize(zip: File): Long = try {
+        ZipFile(zip).use { zf ->
+            var t = 0L
+            val e = zf.entries()
+            while (e.hasMoreElements()) { val x = e.nextElement(); if (!x.isDirectory && x.size > 0) t += x.size }
+            t
+        }
+    } catch (e: IOException) { -1L }
+
     /** Normalised relative path, or null when the entry name is not acceptable. */
     fun safeRelative(raw: String): String? {
         if (raw.isEmpty() || raw.indexOf('\u0000') >= 0) return null

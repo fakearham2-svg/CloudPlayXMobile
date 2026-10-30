@@ -204,9 +204,80 @@ class BrowserActivity : Activity() {
             .setPositiveButton(downloadLabel) { _, _ ->
                 if (plan.upToDate) startActivity(Intent(this, LibraryActivity::class.java)) else startDownload(entry)
             }
-            .setNeutralButton("Open directly") { _, _ -> openStreamed(entry) }
+            .setNeutralButton("More…") { _, _ -> showMoreOptions(entry, v) }
             .setNegativeButton("Close", null)
             .show()
+    }
+
+    private fun showMoreOptions(entry: RemoteEntry, v: Verdict) {
+        if (!v.canBrowseInside) { openStreamed(entry); return }
+        AlertDialog.Builder(this)
+            .setTitle(entry.name)
+            .setItems(arrayOf("Choose files inside to download (saves space)", "Open directly (stream, no download)")) { _, which ->
+                if (which == 0) chooseInside(entry) else openStreamed(entry)
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    /** Reads only the archive's index from the cloud, then lets the user tick the files to download. */
+    private fun chooseInside(entry: RemoteEntry) {
+        u.toast("Reading the archive index (a small part of the file)…")
+        runBg {
+            var items: List<ZipItem>? = null
+            var error: String? = null
+            try {
+                val remote = RemoteFactory.create(applicationContext, settings) ?: throw RemoteException("No cloud is selected.")
+                items = RemoteZip.list(remote, entry).filter { !it.isDir }
+            } catch (e: Exception) {
+                error = ErrorText.of(e)
+            }
+            ui {
+                val list = items
+                if (list == null) {
+                    AlertDialog.Builder(this).setTitle("Cannot read inside this file")
+                        .setMessage((error ?: "Unknown error") + "\n\nYou can still download the whole file.")
+                        .setPositiveButton("OK", null).show()
+                } else if (list.isEmpty()) {
+                    u.toast("The archive contains no files.")
+                } else showSelection(entry, list)
+            }
+        }
+    }
+
+    private fun showSelection(entry: RemoteEntry, list: List<ZipItem>) {
+        val store = LibraryHolder.get(this)
+        val free = store.root.usableSpace
+        val checked = BooleanArray(list.size)
+        val labels = list.map { "${it.name}  ·  ${GameCompat.human(it.size)}" }.toTypedArray()
+        fun title(): String {
+            val sel = list.filterIndexed { i, _ -> checked[i] }
+            val need = sel.sumOf { it.size }
+            val verdict = GameCompat.storage(need, free)
+            return "${sel.size} of ${list.size} selected · ${GameCompat.human(need)} · ${GameCompat.human(free)} free" +
+                if (verdict.level == StorageLevel.OK) "" else "\n${verdict.message}"
+        }
+        lateinit var dialog: AlertDialog
+        dialog = AlertDialog.Builder(this)
+            .setTitle(title())
+            .setMultiChoiceItems(labels, checked) { _, i, on ->
+                checked[i] = on
+                dialog.setTitle(title())
+            }
+            .setPositiveButton("Download selected") { _, _ ->
+                val sel = list.filterIndexed { i, _ -> checked[i] }
+                if (sel.isEmpty()) u.toast("Nothing selected.") else {
+                    if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 77)
+                    }
+                    Transfers.extractSelected(this, entry, sel)
+                    u.toast("Started. Only the selected files are downloaded.")
+                    refreshDownloadsButton()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
     }
 
     private fun startDownload(entry: RemoteEntry) {
